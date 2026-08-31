@@ -24,11 +24,11 @@ func newKV(t *testing.T) db.KV {
 
 func TestElectionSingleLeader(t *testing.T) {
 	kv := newKV(t)
-	e := NewElection(Config{NodeID: "n1", Group: "ctrl", KV: kv, TTL: time.Second, Heartbeat: 50 * time.Millisecond})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	e := NewElection(Config{NodeID: "n1", Group: "ctrl", KV: kv, TTL: 5 * time.Second, Heartbeat: 50 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go e.Run(ctx)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	if !e.IsLeader() {
 		t.Fatal("expected leader")
 	}

@@ -59,6 +59,7 @@ type Usage struct {
 // Engine is the inference backend.
 type Engine interface {
 	Chat(ctx context.Context, req ChatRequest) (*Response, error)
+	Stream(ctx context.Context, req ChatRequest) (<-chan string, error)
 }
 
 // ---- TinyEngine: deterministic, fast, no external deps ----
@@ -127,7 +128,7 @@ func (e *TinyEngine) Chat(ctx context.Context, req ChatRequest) (*Response, erro
 		default:
 		}
 		// Sample a token from vocab deterministically.
-		idx := int(r.Uint64()) % len(e.vocab)
+		idx := int(r.Uint64() % uint64(len(e.vocab)))
 		out.WriteString(e.vocab[idx])
 		out.WriteString(" ")
 		if shouldStop(out.String()) {
@@ -178,3 +179,42 @@ func randID() string {
 
 // Compile-time guard.
 var _ Engine = (*TinyEngine)(nil)
+
+// Stream emits tokens on a channel until completion.
+func (e *TinyEngine) Stream(ctx context.Context, req ChatRequest) (<-chan string, error) {
+	if req.Model == "" {
+		return nil, errors.New("llm: model required")
+	}
+	last := req.Messages[len(req.Messages)-1]
+	prompt := last.Content
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 64
+	}
+	r := newRand(req.Model + ":" + prompt)
+	ch := make(chan string, 16)
+	go func() {
+		defer close(ch)
+		out := strings.Builder{}
+		for i := 0; i < maxTokens; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			idx := int(r.Uint64() % uint64(len(e.vocab)))
+			tok := e.vocab[idx]
+			out.WriteString(tok)
+			out.WriteString(" ")
+			select {
+			case ch <- tok:
+			case <-ctx.Done():
+				return
+			}
+			if shouldStop(out.String()) {
+				return
+			}
+		}
+	}()
+	return ch, nil
+}

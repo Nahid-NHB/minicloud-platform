@@ -98,6 +98,28 @@ func (m *Metrics) Get(name string, labels map[string]string) float64 {
 	return cur.Value
 }
 
+// AvgCPU returns the average CPU utilization across replicas, given
+// a metric key naming convention "workload_cpu_<project>_<id>". The
+// value is taken from a single gauge named with label replica=N for
+// each replica and averaged.
+func (m *Metrics) AvgCPU(workloadMetricName string) float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var sum float64
+	var n int
+	for _, v := range m.mets {
+		if v.Name != workloadMetricName {
+			continue
+		}
+		sum += v.Value
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
+}
+
 // Snapshot returns all metrics, sorted by name.
 func (m *Metrics) Snapshot() []*Metric {
 	m.mu.RLock()

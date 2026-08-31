@@ -4,6 +4,9 @@ go 1.26
 
 require (
 	github.com/minicloud/platform/internal/primitives/db v0.0.0
+	github.com/minicloud/platform/internal/primitives/llm v0.0.0-00010101000000-000000000000
+	github.com/minicloud/platform/internal/primitives/obs v0.0.0-00010101000000-000000000000
+	github.com/minicloud/platform/internal/primitives/runtime v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.55.0
 )
 

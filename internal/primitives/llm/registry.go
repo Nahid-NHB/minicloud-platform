@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 )
@@ -45,14 +46,14 @@ func (r *Registry) Register(m Model, eng Engine) error {
 }
 
 // Resolve returns the engine for the given model. If none registered,
-// it falls back to the tiny engine so OpenAI-compat queries always work.
+// it falls back to a fresh tiny engine so OpenAI-compat queries always work.
 func (r *Registry) Resolve(name string) Engine {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if e, ok := r.engines[name]; ok {
 		return e
 	}
-	return &TinyEngine{}
+	return NewTinyEngine()
 }
 
 // List returns registered models.
@@ -63,6 +64,18 @@ func (r *Registry) List() []Model {
 	for _, m := range r.models {
 		out = append(out, *m)
 	}
+	return out
+}
+
+// Names returns sorted model names.
+func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.models))
+	for n := range r.models {
+		out = append(out, n)
+	}
+	sort.Strings(out)
 	return out
 }
 

@@ -278,10 +278,13 @@ func (r *raft) snapshot() error {
 // ---------- state machine ----------
 
 func (r *raft) applyLocked(e logEntry) {
+	r.mu.Lock()
 	if e.Index <= r.lastApplied {
+		r.mu.Unlock()
 		return
 	}
 	r.lastApplied = e.Index
+	r.mu.Unlock()
 	r.st.mu.Lock()
 	switch e.Op {
 	case "put":

@@ -1,0 +1,663 @@
+syntax = "proto3";
+
+package cloud.v1;
+
+option go_package = "github.com/minicloud/platform/proto/cloud;cloudv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/api/annotations.proto";
+
+// =====================================================================
+// Common
+// =====================================================================
+
+message ResourceQuantity {
+  // CPU in millicores.
+  int64 cpu_millicores = 1;
+  // Memory in bytes.
+  int64 memory_bytes = 2;
+  // Optional GPU count.
+  int32 gpu = 3;
+  // Ephemeral disk in bytes.
+  int64 disk_bytes = 4;
+}
+
+message PortSpec {
+  string name = 1;
+  int32 container_port = 2;
+  int32 host_port = 3;
+  string protocol = 4; // tcp|udp
+}
+
+message EnvVar {
+  string name = 1;
+  string value = 2;
+  oneof source {
+    SecretKeyRef secret_key_ref = 3;
+    ConfigMapKeyRef config_map_key_ref = 4;
+  }
+}
+
+message SecretKeyRef {
+  string name = 1;
+  string key = 2;
+}
+
+message ConfigMapKeyRef {
+  string name = 1;
+  string key = 2;
+}
+
+message VolumeMount {
+  string name = 1;
+  string mount_path = 2;
+  bool read_only = 3;
+}
+
+message VolumeRef {
+  string name = 1;
+  // Empty for ephemeral volumes.
+  string volume_id = 2;
+  // If true, create an empty volume at scheduling time.
+  bool ephemeral = 3;
+  int64 size_bytes = 4;
+}
+
+message HealthCheck {
+  string type = 1; // http|tcp|exec
+  int32 port = 2;
+  string path = 3;
+  google.protobuf.Duration interval = 4;
+  google.protobuf.Duration timeout = 5;
+  int32 failure_threshold = 6;
+}
+
+// =====================================================================
+// Identity
+// =====================================================================
+
+message User {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  bool admin = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message Project {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  ResourceQuantity quota = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message APIKey {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  string prefix = 4; // first 12 chars
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Timestamp last_used_at = 7;
+}
+
+message Role {
+  string id = 1;
+  string name = 2;
+  repeated string rules = 3; // verbs:resource glob
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  User user = 3;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string password = 2;
+  string display_name = 3;
+  bool admin = 4;
+}
+
+message CreateProjectRequest {
+  string name = 1;
+  string description = 2;
+  ResourceQuantity quota = 3;
+}
+
+message CreateAPIKeyRequest {
+  string project_id = 1;
+  string name = 2;
+  google.protobuf.Duration ttl = 3;
+}
+
+message CreateAPIKeyResponse {
+  APIKey key = 1;
+  // Plaintext secret value. Shown once.
+  string secret = 2;
+}
+
+// =====================================================================
+// Workloads, Deployments, Services
+// =====================================================================
+
+enum WorkloadKind {
+  WORKLOAD_KIND_UNSPECIFIED = 0;
+  SERVICE = 1;   // long-running
+  JOB = 2;       // run-to-completion
+  MODEL = 3;     // AI inference
+}
+
+message WorkloadSpec {
+  string image = 1;
+  repeated string command = 2;
+  repeated string args = 3;
+  repeated EnvVar env = 4;
+  repeated PortSpec ports = 5;
+  repeated VolumeMount mounts = 6;
+  repeated VolumeRef volumes = 7;
+  ResourceQuantity resources = 8;
+  HealthCheck health = 9;
+  int32 replicas = 10;
+  // AI workload fields
+  ModelSpec model = 11;
+  // Constraints
+  repeated string node_selector = 12;     // key=value
+  repeated string anti_affinity = 13;
+  repeated string tolerations = 14;
+}
+
+message ModelSpec {
+  string name = 1;
+  string revision = 2;
+  int32 replicas = 3;
+  // max requests in flight per replica
+  int32 max_inflight = 4;
+  // Optional backend override (llama.cpp|vllm|builtin)
+  string backend = 5;
+}
+
+message Workload {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  WorkloadKind kind = 4;
+  WorkloadSpec spec = 5;
+  google.protobuf.Timestamp created_at = 6;
+  int32 desired_replicas = 7;
+  int32 ready_replicas = 8;
+  string status = 9;
+}
+
+message CreateWorkloadRequest {
+  string project_id = 1;
+  string name = 2;
+  WorkloadKind kind = 3;
+  WorkloadSpec spec = 4;
+}
+
+message ScaleWorkloadRequest {
+  string id = 1;
+  int32 replicas = 2;
+}
+
+message Service {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  string workload_id = 4;
+  int32 port = 5;
+  string cluster_ip = 6;
+  map<string, string> labels = 7;
+}
+
+message Deployment {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  string workload_id = 4;
+  int32 replicas = 5;
+  string strategy = 6; // rolling|recreate
+  int32 max_surge = 7;
+  int32 max_unavailable = 8;
+  repeated DeploymentRevision revisions = 9;
+  string current_revision = 10;
+}
+
+message DeploymentRevision {
+  string id = 1;
+  WorkloadSpec spec = 2;
+  google.protobuf.Timestamp created_at = 3;
+  string status = 4;
+}
+
+// =====================================================================
+// Networking
+// =====================================================================
+
+message Network {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  string cidr = 4;
+  string gateway = 5;
+  map<string, string> labels = 6;
+}
+
+// =====================================================================
+// Storage
+// =====================================================================
+
+message Volume {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  int64 size_bytes = 4;
+  string node_id = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message VolumeSnapshot {
+  string id = 1;
+  string volume_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  int64 size_bytes = 4;
+}
+
+// =====================================================================
+// Secrets & ConfigMaps
+// =====================================================================
+
+message Secret {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  map<string, string> data = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ConfigMap {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  map<string, string> data = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// =====================================================================
+// Nodes
+// =====================================================================
+
+message Node {
+  string id = 1;
+  string name = 2;
+  string address = 3;
+  ResourceQuantity capacity = 4;
+  ResourceQuantity allocatable = 5;
+  ResourceQuantity allocated = 6;
+  map<string, string> labels = 7;
+  map<string, string> annotations = 8;
+  google.protobuf.Timestamp last_heartbeat = 9;
+  string status = 10; // Ready|NotReady|Draining
+}
+
+// =====================================================================
+// Metrics & Logs & Alerts
+// =====================================================================
+
+message MetricSeries {
+  string name = 1;
+  map<string, string> labels = 2;
+  repeated MetricPoint points = 3;
+}
+
+message MetricPoint {
+  google.protobuf.Timestamp ts = 1;
+  double value = 2;
+}
+
+message LogEntry {
+  google.protobuf.Timestamp ts = 1;
+  string workload = 2;
+  string replica = 3;
+  string stream = 4; // stdout|stderr
+  string message = 5;
+  map<string, string> labels = 6;
+}
+
+message Alert {
+  string id = 1;
+  string name = 2;
+  string query = 3; // e.g. cpu_usage > 80
+  google.protobuf.Duration for_duration = 4;
+  string severity = 5;
+  bool firing = 6;
+  google.protobuf.Timestamp last_evaluated_at = 7;
+}
+
+// =====================================================================
+// AI / OpenAI-compat
+// =====================================================================
+
+message RegisterModelRequest {
+  string name = 1;
+  string source = 2; // file://, http://, hf://
+  string revision = 3;
+  string backend = 4;
+}
+
+message ModelInfo {
+  string id = 1;
+  string name = 2;
+  string revision = 3;
+  string backend = 4;
+  int64 size_bytes = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// OpenAI-compat chat completions
+message ChatMessage {
+  string role = 1;
+  string content = 2;
+  string name = 3;
+}
+
+message ChatCompletionRequest {
+  string model = 1;
+  repeated ChatMessage messages = 2;
+  double temperature = 3;
+  int32 max_tokens = 4;
+  bool stream = 5;
+}
+
+message ChatChoice {
+  int32 index = 1;
+  ChatMessage message = 2;
+  string finish_reason = 3;
+}
+
+message ChatCompletionResponse {
+  string id = 1;
+  string model = 2;
+  google.protobuf.Timestamp created = 3;
+  repeated ChatChoice choices = 4;
+  Usage usage = 5;
+}
+
+message Usage {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+}
+
+// =====================================================================
+// Services (RPC)
+// =====================================================================
+
+service IdentityService {
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/v1/auth/login", body: "*" };
+  }
+  rpc ListUsers(google.protobuf.Empty) returns (ListUsersResponse) {
+    option (google.api.http) = { get: "/v1/users" };
+  }
+  rpc CreateUser(CreateUserRequest) returns (User) {
+    option (google.api.http) = { post: "/v1/users", body: "*" };
+  }
+  rpc GetUser(GetUserRequest) returns (User) {
+    option (google.api.http) = { get: "/v1/users/{id}" };
+  }
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/users/{id}" };
+  }
+
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {
+    option (google.api.http) = { get: "/v1/projects" };
+  }
+  rpc CreateProject(CreateProjectRequest) returns (Project) {
+    option (google.api.http) = { post: "/v1/projects", body: "*" };
+  }
+  rpc GetProject(GetProjectRequest) returns (Project) {
+    option (google.api.http) = { get: "/v1/projects/{id}" };
+  }
+  rpc DeleteProject(DeleteProjectRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/projects/{id}" };
+  }
+
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse) {
+    option (google.api.http) = { get: "/v1/apikeys" };
+  }
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse) {
+    option (google.api.http) = { post: "/v1/apikeys", body: "*" };
+  }
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/apikeys/{id}" };
+  }
+}
+
+service WorkloadService {
+  rpc List(ListWorkloadsRequest) returns (ListWorkloadsResponse) {
+    option (google.api.http) = { get: "/v1/workloads" };
+  }
+  rpc Get(GetWorkloadRequest) returns (Workload) {
+    option (google.api.http) = { get: "/v1/workloads/{id}" };
+  }
+  rpc Create(CreateWorkloadRequest) returns (Workload) {
+    option (google.api.http) = { post: "/v1/workloads", body: "*" };
+  }
+  rpc Delete(DeleteWorkloadRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/workloads/{id}" };
+  }
+  rpc Scale(ScaleWorkloadRequest) returns (Workload) {
+    option (google.api.http) = { post: "/v1/workloads/{id}/scale", body: "*" };
+  }
+  rpc Restart(RestartWorkloadRequest) returns (Workload) {
+    option (google.api.http) = { post: "/v1/workloads/{id}/restart", body: "*" };
+  }
+  rpc Logs(LogsRequest) returns (stream LogEntry) {
+    option (google.api.http) = { get: "/v1/workloads/{id}/logs" };
+  }
+  rpc Exec(ExecRequest) returns (stream ExecResponse) {
+    option (google.api.http) = { post: "/v1/workloads/{id}/exec", body: "*" };
+  }
+}
+
+service ServiceService {
+  rpc List(ListServicesRequest) returns (ListServicesResponse) {
+    option (google.api.http) = { get: "/v1/services" };
+  }
+  rpc Create(CreateServiceRequest) returns (Service) {
+    option (google.api.http) = { post: "/v1/services", body: "*" };
+  }
+  rpc Delete(DeleteServiceRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/services/{id}" };
+  }
+}
+
+service DeploymentService {
+  rpc List(ListDeploymentsRequest) returns (ListDeploymentsResponse) {
+    option (google.api.http) = { get: "/v1/deployments" };
+  }
+  rpc Create(CreateDeploymentRequest) returns (Deployment) {
+    option (google.api.http) = { post: "/v1/deployments", body: "*" };
+  }
+  rpc Rollback(RollbackDeploymentRequest) returns (Deployment) {
+    option (google.api.http) = { post: "/v1/deployments/{id}/rollback", body: "*" };
+  }
+}
+
+service NetworkService {
+  rpc List(ListNetworksRequest) returns (ListNetworksResponse) {
+    option (google.api.http) = { get: "/v1/networks" };
+  }
+  rpc Create(CreateNetworkRequest) returns (Network) {
+    option (google.api.http) = { post: "/v1/networks", body: "*" };
+  }
+  rpc Delete(DeleteNetworkRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/networks/{id}" };
+  }
+}
+
+service VolumeService {
+  rpc List(ListVolumesRequest) returns (ListVolumesResponse) {
+    option (google.api.http) = { get: "/v1/volumes" };
+  }
+  rpc Create(CreateVolumeRequest) returns (Volume) {
+    option (google.api.http) = { post: "/v1/volumes", body: "*" };
+  }
+  rpc Delete(DeleteVolumeRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/volumes/{id}" };
+  }
+  rpc Snapshot(SnapshotVolumeRequest) returns (VolumeSnapshot) {
+    option (google.api.http) = { post: "/v1/volumes/{id}/snapshots", body: "*" };
+  }
+}
+
+service SecretService {
+  rpc List(ListSecretsRequest) returns (ListSecretsResponse) {
+    option (google.api.http) = { get: "/v1/secrets" };
+  }
+  rpc Create(CreateSecretRequest) returns (Secret) {
+    option (google.api.http) = { post: "/v1/secrets", body: "*" };
+  }
+  rpc Delete(DeleteSecretRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/secrets/{id}" };
+  }
+}
+
+service NodeService {
+  rpc List(google.protobuf.Empty) returns (ListNodesResponse) {
+    option (google.api.http) = { get: "/v1/nodes" };
+  }
+  rpc Get(GetNodeRequest) returns (Node) {
+    option (google.api.http) = { get: "/v1/nodes/{id}" };
+  }
+  rpc Cordon(CordonNodeRequest) returns (Node) {
+    option (google.api.http) = { post: "/v1/nodes/{id}/cordon", body: "*" };
+  }
+  rpc Drain(DrainNodeRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { post: "/v1/nodes/{id}/drain", body: "*" };
+  }
+}
+
+service MetricsService {
+  rpc Query(QueryMetricsRequest) returns (QueryMetricsResponse) {
+    option (google.api.http) = { get: "/v1/metrics/query" };
+  }
+}
+
+service AlertService {
+  rpc List(google.protobuf.Empty) returns (ListAlertsResponse) {
+    option (google.api.http) = { get: "/v1/alerts" };
+  }
+  rpc Create(CreateAlertRequest) returns (Alert) {
+    option (google.api.http) = { post: "/v1/alerts", body: "*" };
+  }
+}
+
+service ModelService {
+  rpc Register(RegisterModelRequest) returns (ModelInfo) {
+    option (google.api.http) = { post: "/v1/models", body: "*" };
+  }
+  rpc List(google.protobuf.Empty) returns (ListModelsResponse) {
+    option (google.api.http) = { get: "/v1/models" };
+  }
+  rpc Delete(DeleteModelRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/models/{id}" };
+  }
+}
+
+// =====================================================================
+// Request/response envelopes
+// =====================================================================
+
+message ListUsersResponse { repeated User users = 1; }
+message GetUserRequest { string id = 1; }
+message DeleteUserRequest { string id = 1; }
+
+message ListProjectsRequest { int32 page_size = 1; string page_token = 2; }
+message ListProjectsResponse { repeated Project projects = 1; string next_page_token = 2; }
+message GetProjectRequest { string id = 1; }
+message DeleteProjectRequest { string id = 1; }
+
+message ListAPIKeysRequest { string project_id = 1; }
+message ListAPIKeysResponse { repeated APIKey keys = 1; }
+message RevokeAPIKeyRequest { string id = 1; }
+
+message ListWorkloadsRequest { string project_id = 1; }
+message ListWorkloadsResponse { repeated Workload workloads = 1; }
+message GetWorkloadRequest { string id = 1; }
+message DeleteWorkloadRequest { string id = 1; }
+message RestartWorkloadRequest { string id = 1; }
+message LogsRequest { string id = 1; bool follow = 2; int32 tail = 3; }
+message ExecRequest { string id = 1; repeated string command = 2; bool tty = 3; }
+message ExecResponse { string channel = 1; bytes data = 2; int32 exit_code = 3; }
+
+message ListServicesRequest { string project_id = 1; }
+message ListServicesResponse { repeated Service services = 1; }
+message CreateServiceRequest {
+  string project_id = 1;
+  string name = 2;
+  string workload_id = 3;
+  int32 port = 4;
+  map<string, string> labels = 5;
+}
+message DeleteServiceRequest { string id = 1; }
+
+message ListDeploymentsRequest { string project_id = 1; }
+message ListDeploymentsResponse { repeated Deployment deployments = 1; }
+message CreateDeploymentRequest {
+  string project_id = 1;
+  string name = 2;
+  WorkloadSpec spec = 3;
+  int32 replicas = 4;
+  string strategy = 5;
+  int32 max_surge = 6;
+  int32 max_unavailable = 7;
+}
+message RollbackDeploymentRequest { string id = 1; string revision = 2; }
+
+message ListNetworksRequest { string project_id = 1; }
+message ListNetworksResponse { repeated Network networks = 1; }
+message CreateNetworkRequest { string project_id = 1; string name = 2; string cidr = 3; string gateway = 4; map<string,string> labels = 5; }
+message DeleteNetworkRequest { string id = 1; }
+
+message ListVolumesRequest { string project_id = 1; }
+message ListVolumesResponse { repeated Volume volumes = 1; }
+message CreateVolumeRequest { string project_id = 1; string name = 2; int64 size_bytes = 3; }
+message DeleteVolumeRequest { string id = 1; }
+message SnapshotVolumeRequest { string id = 1; }
+
+message ListSecretsRequest { string project_id = 1; }
+message ListSecretsResponse { repeated Secret secrets = 1; }
+message CreateSecretRequest { string project_id = 1; string name = 2; map<string,string> data = 3; }
+message DeleteSecretRequest { string id = 1; }
+
+message ListNodesResponse { repeated Node nodes = 1; }
+message GetNodeRequest { string id = 1; }
+message CordonNodeRequest { string id = 1; bool cordon = 2; }
+message DrainNodeRequest { string id = 1; int32 grace_period_seconds = 2; }
+
+message QueryMetricsRequest { string query = 1; google.protobuf.Timestamp from = 2; google.protobuf.Timestamp to = 3; }
+message QueryMetricsResponse { repeated MetricSeries series = 1; }
+
+message ListAlertsResponse { repeated Alert alerts = 1; }
+message CreateAlertRequest {
+  string name = 1;
+  string query = 2;
+  google.protobuf.Duration for_duration = 3;
+  string severity = 4;
+}
+
+message ListModelsResponse { repeated ModelInfo models = 1; }
+message DeleteModelRequest { string id = 1; }

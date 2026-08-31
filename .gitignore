@@ -1,0 +1,39 @@
+# Binaries
+bin/
+*.exe
+*.test
+*.out
+*.prof
+
+# Go
+vendor/
+go.work.sum
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / state
+*.env
+*.env.local
+*.key
+*.pem
+*.crt
+state/
+data/
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+
+# Local cluster runtime
+run/
+logs/
+tmp/
+.cache/

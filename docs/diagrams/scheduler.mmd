@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant API
+    participant Sch as Scheduler
+    participant KV as Raft KV
+    participant NA as Node Agent
+
+    API->>Sch: enqueue(workload)
+    Sch->>KV: list nodes + resources
+    KV-->>Sch: snapshot
+    Sch->>Sch: filter + score
+    Sch->>KV: CAS lease(node, workload)
+    KV-->>Sch: ok / retry
+    Sch->>NA: apply(spec)
+    NA-->>Sch: ack
+    Sch->>KV: write placement

@@ -1,0 +1,24 @@
+flowchart LR
+    User[User / CLI / Dashboard] -->|REST+gRPC| API[Cloud API]
+    User -->|OpenAI API| API
+    API --> ID[Identity]
+    API --> CTRL[Controller]
+    API --> SCH[Scheduler]
+    CTRL --> KV[(Raft KV)]
+    SCH --> KV
+    API --> KV
+    CTRL --> MQ[(Message Queue)]
+    SCH --> MQ
+    NA[Node Agents] -->|heartbeat, logs, metrics| MQ
+    NA --> KV
+    NA -->|CRI| RT[Container Runtime]
+    NA -->|exec| OBS[Observability]
+    SCH -->|place| NA
+    CTRL -->|reconcile| NA
+    DNS[Cloud DNS] --> KV
+    LB[Cloud LB] --> KV
+    OBJ[Object Storage] --> KV
+    VOL[Volume Driver] --> KV
+    SEC[Secrets] --> KV
+    LLM[LLM Inference] --> NA
+    LLM --> OBS

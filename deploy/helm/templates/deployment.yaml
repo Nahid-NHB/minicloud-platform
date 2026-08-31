@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minicloud-platform.fullname" . }}-api
+spec:
+  replicas: {{ .Values.replicas.api }}
+  selector:
+    matchLabels:
+      app: minicloud-api
+  template:
+    metadata:
+      labels:
+        app: minicloud-api
+    spec:
+      containers:
+      - name: cloudinit
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args: ["-addr=:8080", "-db=/data/state"]
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ADMIN_EMAIL
+          value: {{ .Values.auth.adminEmail }}
+        - name: ADMIN_PASSWORD
+          value: {{ .Values.auth.adminPassword | quote }}
+        volumeMounts:
+        - name: state
+          mountPath: /data
+      volumes:
+      - name: state
+        persistentVolumeClaim:
+          claimName: {{ include "minicloud-platform.fullname" . }}-state
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "minicloud-platform.fullname" . }}-state
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+  storageClassName: {{ .Values.storage.class }}

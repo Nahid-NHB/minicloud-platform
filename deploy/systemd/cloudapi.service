@@ -1,0 +1,15 @@
+[Unit]
+Description=Mini Cloud Platform API
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/cloudinit -addr=:8080 -db=/var/lib/minicloud/state -admin-email=admin@minicloud.local -admin-password=changeme
+Restart=always
+RestartSec=5s
+User=minicloud
+Group=minicloud
+WorkingDirectory=/var/lib/minicloud
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

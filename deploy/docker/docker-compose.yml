@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  api:
+    build: ../..
+    command: ["/app/cloudinit", "-addr=:8080", "-db=/data/state", "-admin-email=admin@minicloud.local", "-admin-password=admin"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - api-data:/data
+
+  controller:
+    build: ../..
+    command: ["/app/cloudinit", "-addr=:8081", "-db=/data/state"]
+    volumes:
+      - ctrl-data:/data
+
+  node1:
+    build: ../..
+    command: ["/app/cloudnode", "-node-id=node-1", "-addr=node1", "-db=/data/state"]
+    volumes:
+      - node1-data:/data
+
+  node2:
+    build: ../..
+    command: ["/app/cloudnode", "-node-id=node-2", "-addr=node2", "-db=/data/state"]
+    volumes:
+      - node2-data:/data
+
+  llm:
+    build: ../..
+    command: ["/app/cloudinit", "-addr=:9000"]
+    ports:
+      - "9000:9000"
+
+volumes:
+  api-data:
+  ctrl-data:
+  node1-data:
+  node2-data:

@@ -1,0 +1,20 @@
+image:
+  repository: minicloud/platform
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicas:
+  api: 1
+  controller: 1
+
+service:
+  type: LoadBalancer
+  port: 8080
+
+storage:
+  size: 10Gi
+  class: standard
+
+auth:
+  adminEmail: admin@minicloud.local
+  adminPassword: changeme

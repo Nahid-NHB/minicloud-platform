@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mini Cloud Platform</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; background: #f7f7f9; color: #222; }
+  header { padding: 12px 20px; background: #1f2937; color: white; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  nav { background: #111827; padding: 8px 20px; }
+  nav a { color: #e5e7eb; margin-right: 16px; text-decoration: none; font-size: 14px; }
+  nav a:hover { text-decoration: underline; }
+  main { padding: 20px; }
+  section { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+  section h2 { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+  tr:hover { background: #f3f4f6; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+  .pill.green { background: #d1fae5; color: #065f46; }
+  .pill.gray { background: #e5e7eb; color: #374151; }
+  .pill.yellow { background: #fef3c7; color: #92400e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h3 { margin: 0 0 8px; font-size: 16px; }
+  .stat { font-size: 24px; font-weight: 600; color: #111827; }
+  button { padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  input, select { padding: 4px 8px; border-radius: 4px; border: 1px solid #d1d5db; }
+  pre { background: #f3f4f6; padding: 8px; border-radius: 4px; overflow: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mini Cloud Platform</h1>
+  <span id="who"></span>
+</header>
+<nav>
+  <a href="#overview">Overview</a>
+  <a href="#workloads">Workloads</a>
+  <a href="#nodes">Nodes</a>
+  <a href="#chat">AI Chat</a>
+</nav>
+<main>
+  <section id="overview">
+    <h2>Overview</h2>
+    <div class="grid" id="stats"></div>
+  </section>
+
+  <section id="workloads">
+    <h2>Workloads</h2>
+    <p>
+      Project:
+      <select id="project-select"></select>
+      <input id="new-workload" placeholder="workload-id">
+      <input id="new-image" placeholder="image (nginx:latest)" value="nginx:latest">
+      <input id="new-replicas" type="number" value="1" style="width: 60px;">
+      <input id="new-cpu" type="number" value="100" style="width: 80px;" title="cpu millicores">
+      <input id="new-mem" type="number" value="134217728" style="width: 110px;" title="memory bytes">
+      <button onclick="createWorkload()">Create</button>
+    </p>
+    <table id="workloads-table">
+      <thead><tr><th>ID</th><th>Image</th><th>Replicas</th><th>CPU</th><th>Mem</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="nodes">
+    <h2>Nodes</h2>
+    <table id="nodes-table">
+      <thead><tr><th>ID</th><th>Address</th><th>Status</th><th>CPU used</th><th>Mem used</th><th>Last heartbeat</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="chat">
+    <h2>AI Chat</h2>
+    <p>
+      <select id="model">
+        <option value="echo">echo</option>
+        <option value="minicloud">minicloud</option>
+      </select>
+      <input id="prompt" style="width: 60%;" placeholder="Ask something">
+      <button onclick="sendChat()">Send</button>
+    </p>
+    <pre id="chat-out"></pre>
+  </section>
+</main>
+
+<script>
+const API = window.location.origin + "/v1";
+let token = "";
+
+async function login() {
+  const r = await fetch("/v1/login", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@minicloud.local", password: "admin" }) });
+  const j = await r.json();
+  token = j.token;
+  document.getElementById("who").textContent = "logged in as admin";
+}
+
+async function auth(path, opts={}) {
+  opts.headers = Object.assign({ "Authorization": "Bearer " + token }, opts.headers || {});
+  if (opts.body && typeof opts.body !== "string") {
+    opts.body = JSON.stringify(opts.body);
+    opts.headers["Content-Type"] = "application/json";
+  }
+  const r = await fetch(API + path, opts);
+  return r;
+}
+
+async function refresh() {
+  await refreshStats();
+  await refreshProjects();
+  await refreshWorkloads();
+  await refreshNodes();
+}
+
+async function refreshStats() {
+  const stats = document.getElementById("stats");
+  stats.innerHTML = "";
+  let projects = 0, workloads = 0, nodes = 0;
+  try {
+    const r = await auth("/projects"); projects = (await r.json()).length;
+  } catch {}
+  try {
+    const r = await auth("/nodes"); nodes = (await r.json()).length;
+  } catch {}
+  try {
+    const sel = document.getElementById("project-select");
+    if (sel.value) {
+      const r = await auth("/workloads?project_id=" + sel.value);
+      workloads = (await r.json()).length;
+    }
+  } catch {}
+  for (const [label, val, color] of [
+    ["Projects", projects, "#2563eb"],
+    ["Workloads", workloads, "#10b981"],
+    ["Nodes", nodes, "#f59e0b"],
+  ]) {
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `<h3>${label}</h3><div class="stat" style="color:${color}">${val}</div>`;
+    stats.appendChild(el);
+  }
+}
+
+async function refreshProjects() {
+  const sel = document.getElementById("project-select");
+  const r = await auth("/projects");
+  const ps = await r.json();
+  sel.innerHTML = "";
+  ps.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.id; opt.textContent = p.id;
+    sel.appendChild(opt);
+  });
+  sel.onchange = refresh;
+}
+
+async function refreshWorkloads() {
+  const sel = document.getElementById("project-select");
+  const pid = sel.value;
+  if (!pid) return;
+  const r = await auth("/workloads?project_id=" + pid);
+  const ws = await r.json();
+  const tb = document.querySelector("#workloads-table tbody");
+  tb.innerHTML = "";
+  ws.forEach(w => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${w.id}</td><td>${w.image || ""}</td><td>${w.replicas || 0}</td>
+      <td>${w.cpu_millicores || 0}m</td><td>${Math.round((w.memory_bytes||0)/1048576)}Mi</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function refreshNodes() {
+  const r = await auth("/nodes");
+  const ns = await r.json();
+  const tb = document.querySelector("#nodes-table tbody");
+  tb.innerHTML = "";
+  ns.forEach(n => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${n.id}</td><td>${n.address || ""}</td>
+      <td><span class="pill ${n.status==='Ready'?'green':'gray'}">${n.status || "?"}</span></td>
+      <td>${n.cpu_allocated || 0}m</td><td>${Math.round((n.mem_allocated||0)/1048576)}Mi</td>
+      <td>${n.last_heartbeat || ""}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function createWorkload() {
+  const pid = document.getElementById("project-select").value;
+  const id = document.getElementById("new-workload").value;
+  if (!pid || !id) return;
+  await auth("/workloads?project_id=" + pid, {
+    method: "POST",
+    body: {
+      id, image: document.getElementById("new-image").value,
+      replicas: parseInt(document.getElementById("new-replicas").value),
+      cpu_millicores: parseInt(document.getElementById("new-cpu").value),
+      memory_bytes: parseInt(document.getElementById("new-mem").value),
+    },
+  });
+  refreshWorkloads();
+}
+
+async function sendChat() {
+  const model = document.getElementById("model").value;
+  const prompt = document.getElementById("prompt").value;
+  const r = await fetch("/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }] }),
+  });
+  const j = await r.json();
+  document.getElementById("chat-out").textContent = j.choices?.[0]?.message?.content || "(no response)";
+}
+
+(async () => {
+  await login();
+  await refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>
